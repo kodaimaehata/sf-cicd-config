@@ -5,11 +5,16 @@ import {parseString, Builder} from 'xml2js';
 
 const f = fs;
 
-const classesFolderPath : String = '/src/classes';
-const componentsFolderPath : String = '/src/components';
-const pagesFolderPath : String = '/src/pages';
-const packageXmlPath : String = '/src/package.xml';
-const buildXmlPath : String = '/build/build.xml';
+const configPAth : string = '/.cicd-config';
+const configFileName : string = '/setting.json';
+
+var workspaceFolderPath : string = '';
+var packageFolderPath : string = '';
+const classesFolderPath : string = packageFolderPath + '/src/classes';
+const componentsFolderPath : string = packageFolderPath + '/src/components';
+const pagesFolderPath : string = packageFolderPath + '/src/pages';
+const packageXmlPath : string = packageFolderPath + '/src/package.xml';
+const buildXmlPath : string = packageFolderPath + '/build/build.xml';
 
 const toBeUpdatedTargets : Array<String> = ['deployCode_SpecifiedTests','NoDeploy_SpecifiedTests']; 
 
@@ -17,6 +22,31 @@ var buildXmlJson : any;
 var packageXmlJson : any;
 
 export function activate(context: vscode.ExtensionContext) {
+
+	try{
+		workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.toString().split(":")[1];
+		console.log(workspaceFolderPath + configPAth + configFileName);
+
+		fs.statSync(workspaceFolderPath + configPAth + configFileName);
+
+		var settingObj = JSON.parse(fs.readFileSync(workspaceFolderPath + configPAth + configFileName).toString());
+		console.log(settingObj);
+
+		packageFolderPath = workspaceFolderPath + settingObj["packageFolderPath"];
+
+	}catch(error){
+		if (error.code === 'ENOENT') {
+			vscode.window.showInformationMessage('Create config Path : ' + workspaceFolderPath + configPAth);
+			fs.mkdirSync(workspaceFolderPath + configPAth);
+
+			var settingJsonStr  = {"packageFolderPath" : ""};
+			vscode.window.showInformationMessage('Create config file : ' + workspaceFolderPath + configPAth + configFileName);
+			fs.writeFileSync(workspaceFolderPath + configPAth + configFileName,JSON.stringify(settingJsonStr));
+		} else {
+			console.log(error);
+			vscode.window.showErrorMessage('Error during creating setting.json. Error Message : ' + error);
+		}
+	}
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('SF-CICD-Config.openConfigScreen', () => {
@@ -38,20 +68,17 @@ export function activate(context: vscode.ExtensionContext) {
 
 function createInputObject(){
 
-	const folderPath = vscode.workspace.workspaceFolders[0].uri
-		.toString()
-		.split(":")[1];
 
-	if(!checkFolderPathAndPermission(folderPath)) return;
+	if(!checkFolderPathAndPermission(packageFolderPath)) return;
 
 	var filesInSrc : Object ={'ApexClass' : [] , 'ApexComponent' : [] , 'ApexPage' : []};
 
 	//classes, comopnents, pagesフォルダのファイルを検索
-	fs.readdirSync(folderPath + classesFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexClass'].push(fName.replace('.cls',''));});
-	fs.readdirSync(folderPath + componentsFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexComponent'].push(fName.replace('.component',''));});
-	fs.readdirSync(folderPath + pagesFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexPage'].push(fName.replace('.page',''));});
+	fs.readdirSync(packageFolderPath + classesFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexClass'].push(fName.replace('.cls',''));});
+	fs.readdirSync(packageFolderPath + componentsFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexComponent'].push(fName.replace('.component',''));});
+	fs.readdirSync(packageFolderPath + pagesFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexPage'].push(fName.replace('.page',''));});
 
-	var xmlData = fs.readFileSync(folderPath + packageXmlPath);
+	var xmlData = fs.readFileSync(packageFolderPath + packageXmlPath);
 	var filesInPkg : Object = {};
 
 	parseString(xmlData, function(err,result){
@@ -77,7 +104,7 @@ function createInputObject(){
 		}
 	});
 
-	var buildXMLData = fs.readFileSync(folderPath + buildXmlPath);
+	var buildXMLData = fs.readFileSync(packageFolderPath + buildXmlPath);
 	var filesInBuildFile : Object = {};
 	parseString(buildXMLData, function(err,result){
 		if(err){
@@ -105,17 +132,21 @@ function checkFolderPathAndPermission(folderPath: String) : boolean{
 
 	//check path of classes, comopnents, pages folder
 	try{
-		fs.accessSync(folderPath + this.classesFolderPath,fs.constants.R_OK);
-		fs.accessSync(folderPath + this.componentsFolderPath, fs.constants.R_OK);
-		fs.accessSync(folderPath + this.pagesFolderPath, fs.constants.R_OK);
+		console.log('folderPath' + folderPath);
+		console.log(folderPath + classesFolderPath);
+
+		fs.accessSync(folderPath + classesFolderPath,fs.constants.R_OK);
+		fs.accessSync(folderPath + componentsFolderPath, fs.constants.R_OK);
+		fs.accessSync(folderPath + pagesFolderPath, fs.constants.R_OK);
 	}catch (err){
+
 		vscode.window.showErrorMessage('Folders in src were not found. Please check src/classes, src/components, src/pages exist.');
 		return false;
 	}
 
 	//check package.xml path
 	try{
-		fs.accessSync(folderPath + this.packageXmlPath,fs.constants.W_OK);
+		fs.accessSync(folderPath + packageXmlPath,fs.constants.W_OK);
 	}catch (err){
 		vscode.window.showErrorMessage('package.xml was not found or write permission is not set.');
 		return false;
@@ -123,7 +154,7 @@ function checkFolderPathAndPermission(folderPath: String) : boolean{
 
 	//check package.xml path
 	try{
-		fs.accessSync(folderPath + this.buildXmlPath,fs.constants.W_OK);
+		fs.accessSync(folderPath + buildXmlPath,fs.constants.W_OK);
 	}catch (err){
 		vscode.window.showErrorMessage('build.xml was not found or write permission is not set.');
 		return false;
@@ -159,11 +190,7 @@ function savePackagexml(filesToSaveObj){
 
 	console.log(xmlStr);
 
-	const folderPath = vscode.workspace.workspaceFolders[0].uri
-	.toString()
-	.split(":")[1];
-
-	fs.writeFile(folderPath + packageXmlPath,xmlStr,function(err){
+	fs.writeFile(packageFolderPath + packageXmlPath,xmlStr,function(err){
 		(err)? vscode.window.showErrorMessage('Error happend on saving package.xml' + err.message) : vscode.window.showInformationMessage('Successfully saved package.xml');
 	});
 
@@ -187,9 +214,7 @@ function saveBuildXml(filesToSaveObj){
 	console.log('xmlStr to be Saved');
 	console.log(xmlStr);
 
-	const folderPath = vscode.workspace.workspaceFolders[0].uri.toString().split(":")[1];
-
-	fs.writeFile(folderPath + buildXmlPath,xmlStr,function(err){
+	fs.writeFile(packageFolderPath + buildXmlPath,xmlStr,function(err){
 		(err)? vscode.window.showErrorMessage('Error happend on saving package.xml' + err.message) : vscode.window.showInformationMessage('Successfully saved build.xml');
 	});
 

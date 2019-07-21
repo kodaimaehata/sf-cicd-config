@@ -10,6 +10,7 @@
 		"Other"
 	],
 	"activationEvents": [
+		"*",
 		"onCommand:SF-CICD-Config.openConfigScreen",
 		"onWebviewPanel:SF-CICD-Config"
 	],
