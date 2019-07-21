@@ -23,6 +23,26 @@ var packageXmlJson : any;
 
 export function activate(context: vscode.ExtensionContext) {
 
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('SF-CICD-Config.openConfigScreen', () => {
+			ConfigPanel.createOrShow(context.extensionPath,createInputObject());
+		})
+	);
+
+	if (vscode.window.registerWebviewPanelSerializer) {
+		// Make sure we register a serializer in activation event
+		vscode.window.registerWebviewPanelSerializer(ConfigPanel.viewType, {
+			async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: any) {
+				console.log(`Got state: ${state}`);
+				console.log(state);
+				ConfigPanel.revive(webviewPanel, context.extensionPath);
+			}
+		});
+	}
+}
+
+function init(){
 	try{
 		workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.toString().split(":")[1];
 		console.log(workspaceFolderPath + configPAth + configFileName);
@@ -48,26 +68,11 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	}
 
-	context.subscriptions.push(
-		vscode.commands.registerCommand('SF-CICD-Config.openConfigScreen', () => {
-			ConfigPanel.createOrShow(context.extensionPath,createInputObject());
-		})
-	);
-
-	if (vscode.window.registerWebviewPanelSerializer) {
-		// Make sure we register a serializer in activation event
-		vscode.window.registerWebviewPanelSerializer(ConfigPanel.viewType, {
-			async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: any) {
-				console.log(`Got state: ${state}`);
-				console.log(state);
-				ConfigPanel.revive(webviewPanel, context.extensionPath);
-			}
-		});
-	}
 }
 
 function createInputObject(){
 
+	init();
 
 	if(!checkFolderPathAndPermission(packageFolderPath)) return;
 
