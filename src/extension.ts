@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 function init(){
 	try{
-		workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.toString().split(":")[1];
+		workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
 		console.log(workspaceFolderPath + configPAth + configFileName);
 
 		fs.statSync(workspaceFolderPath + configPAth + configFileName);
