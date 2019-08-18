@@ -5,89 +5,152 @@
 const vscode = acquireVsCodeApi();
 
 function init(initObj){
-    var fPkg = initObj.filesInPkg;
-    var fSrc = initObj.filesInSrc;
-    var tCls = initObj.filesInBuildFile;
-    initializeChosen(fSrc,fPkg,tCls);
+    var filesInPkg = initObj.filesInPkg;
+    var filesInSrc = initObj.filesInSrc;
+    var fieldsInPkg = initObj.fieldsInPkg;
+    var fieldsInSrc = initObj.fieldsInSrc;
+    var testClass = initObj.filesInBuildFile;
+    initializeChosen(filesInSrc,filesInPkg,fieldsInSrc,fieldsInPkg,testClass);
 }
 
-function initializeChosen(fSrc,fPkg,tCls){
+function initializeChosen(filesInSrc,filesInPkg,fieldsInSrc,fieldsInPkg,testClass){
 
-    fSrc.ApexClass.forEach(element => {
-        $('#class-selector').append(getOptionHTMLRecord(fPkg.ApexClass,element));
+    filesInSrc.ApexClass.forEach(element => {
+        $('#class-selector').append(getOptionHTMLRecord(filesInPkg.ApexClass,element));
     });
     $("#class-selector").chosen({width:"90%"});
     $("#class-selector").on('change',function(evt,params){
         updateState(params,'ApexClass');
     });
 
-    fSrc.ApexPage.forEach(element => {
-        $('#page-selector').append(getOptionHTMLRecord(fPkg.ApexPage,element));
+    filesInSrc.ApexPage.forEach(element => {
+        $('#page-selector').append(getOptionHTMLRecord(filesInPkg.ApexPage,element));
     });
     $("#page-selector").chosen({width:"90%"});
     $("#page-selector").on('change',function(evt,params){
         updateState(params,'ApexPage');
     });
 
-    fSrc.ApexComponent.forEach(element => {
-       $('#component-selector').append(getOptionHTMLRecord(fPkg.ApexComponent,element));
+    filesInSrc.ApexComponent.forEach(element => {
+       $('#component-selector').append(getOptionHTMLRecord(filesInPkg.ApexComponent,element));
     });
     $("#component-selector").chosen({width:"90%"});
     $("#component-selector").on('change',function(evt,params){
         updateState(params,'ApexComponent');
     });
 
-    fSrc.ApexClass.forEach(element => {
-        $('#testclass-selector').append(getOptionHTMLRecord(tCls,element));
+    filesInSrc.CustomObject.forEach(element => {
+        $('#object-selector').append(getOptionHTMLRecord(filesInPkg.CustomObject,element));
+    })
+    $("#object-selector").chosen({width:"90%"});
+    $("#object-selector").on('change',function(evt,params){
+        updateState(params,'CustomObject');
+    });
+
+    filesInSrc.ApexClass.forEach(element => {
+        $('#testclass-selector').append(getOptionHTMLRecord(testClass,element));
     });
     $("#testclass-selector").chosen({width:"90%"});
     $("#testclass-selector").on('change',function(evt,params){
         updateState(params, 'TestClass');
     });
 
+    constructCustomFieldArea(fieldsInSrc, fieldsInPkg);
 
     $("#save-package-btn").click(function(){
         sendFilesToSaveObj();
     });
 
-    vscode.setState({ 'fPkg' : fPkg ,'fSrc' : fSrc,'tCls' : tCls});
+    vscode.setState({ 
+        'filesInPkg' : filesInPkg ,
+        'filesInSrc' : filesInSrc,
+        'fieldsInPkg' : fieldsInPkg, 
+        'fieldsInSrc' : fieldsInSrc, 
+        'testClass' : testClass
+    });
+}
+
+function constructCustomFieldArea(fieldsInSrc, fieldsInPkg){
+    var objectList = Object.keys(fieldsInSrc);
+
+    objectList.forEach(object => {
+
+        // var delButtonId = 'object-delbutton-' + object;
+        var fieldSelectorId = 'field-selector-' + object;
+
+        // var buttonColumn = '<td><button id="' + delButtonId + '">delete</button></td>';
+        var objectNameColumn = '<td>' + object + '</td>';
+        var fieldsColumn = '<td><select id="' + fieldSelectorId + '" multiple data-placeholder="Select CustomFields to include ..." data-target-object="' + object + '"></select></td>';
+
+        var objectRecord = 
+            '<tr id="object-record-' + object + '">'
+                //  + buttonColumn
+                 + objectNameColumn
+                 + fieldsColumn
+            +'</tr>';
+
+        $("#custom-field-table").append(objectRecord);
+
+        var fieldSelector = '#' + fieldSelectorId;
+
+        fieldsInSrc[object].forEach(field => {
+            $(fieldSelector).append(getOptionHTMLRecord(fieldsInPkg[object],field));
+        });
+
+        $(fieldSelector).chosen({width : "100%"});
+        $(fieldSelector).on('change', function(evt,params){
+            var object = $(this).data('target-object');
+            console.log('*** object name ***');
+            console.log(object);
+            console.log('*** params.selected ***')
+            console.log(params.selected);
+            updateState(params,'CustomField',object);
+        })
+        
+    });
 
 }
 
-function updateState(params,type){
+function updateState(params,type,object){
+
+    var state = vscode.getState();
 
     if('selected' in params){
-        var state = vscode.getState();
-        (type === 'TestClass') ? state.tCls.push(params.selected): state.fPkg[type].push(params.selected);
-        vscode.setState({ 'fPkg' : state.fPkg ,'fSrc' : state.fSrc, 'tCls' : state.tCls});
+        switch(type){
+            case 'TestClass' : {state.testClass.push(params.selected);break;}
+            case 'CustomField' : {state.fieldsInPkg[object].push(params.selected);break;}
+            default : {state.filesInPkg[type].push(params.selected);break;}
+        }
+
     }else if('deselected' in params){
-        var state = vscode.getState();
+        switch(type){
+            case 'TestClass' : {deleteDeselected(params,state.testClass) ;break;}
+            case 'CustomField' : {deleteDeselected(params,state.fieldsInPkg[object]);break;}
+            default : {deleteDeselected(params,state.filesInPkg[type]);break;}
+        }
 
-        (type == 'TestClass') ? deleteDeselected(params,state.tCls) : deleteDeselected(params,state.fPkg[type]);
-
-        vscode.setState({ 'fPkg' : state.fPkg ,'fSrc' : state.fSrc, 'tCls' : state.tCls});
     }else{
         console.log('Other event');
     }
 
+    vscode.setState(state);
+
 }
 
-function deleteDeselected(params, filesArray){
-    for(var i = 0 ;i< filesArray.length ;i++){
-        if(filesArray[i] == params.deselected){
-            filesArray.splice(i,1);
+function deleteDeselected(params, targetArray){
+    for(var i = 0 ;i< targetArray.length ;i++){
+        if(targetArray[i] == params.deselected){
+            targetArray.splice(i,1);
             break;
         }
     }
-
-//    return filesArray;
 }
 
-function getOptionHTMLRecord(fPkgArray,fileName){
+function getOptionHTMLRecord(filesInPkgArray,fileName){
 
-    if(!fPkgArray) return '<option value="' + fileName + '">' + fileName + '</option>';
+    if(!filesInPkgArray) return '<option value="' + fileName + '">' + fileName + '</option>';
 
-    if(fPkgArray.includes(fileName)){
+    if(filesInPkgArray.includes(fileName)){
         return '<option value="' + fileName + '" selected>' + fileName + '</option>';
     }else{
         return '<option value="' + fileName + '">' + fileName + '</option>';
@@ -98,16 +161,29 @@ function getOptionHTMLRecord(fPkgArray,fileName){
 
 function sendFilesToSaveObj(){
 
-    var filesToSave = {ApexClass : [] ,ApexComponent : [], ApexPage : [], TestClass : []};
+    var state = vscode.getState();
 
-    $('#class_selector_chosen').find('.search-choice').each(function(){filesToSave['ApexClass'].push($(this).find('span').text());});
-    $('#page_selector_chosen').find('.search-choice').each(function(){filesToSave['ApexPage'].push($(this).find('span').text());});
-    $('#component_selector_chosen').find('.search-choice').each(function(){filesToSave['ApexComponent'].push($(this).find('span').text());});
-    $('#testclass_selector_chosen').find('.search-choice').each(function(){filesToSave['TestClass'].push($(this).find('span').text());});
+    var filesToSave = {
+        ApexClass : state.filesInPkg.ApexClass ,
+        ApexComponent : state.filesInPkg.ApexComponent, 
+        ApexPage : state.filesInPkg.ApexPage,
+        CustomObject  : state.filesInPkg.CustomObject,
+        TestClass : state.testClass
+    };
+
+    var fieldsToSave = state.fieldsInPkg;
+
+    // $('#class_selector_chosen').find('.search-choice').each(function(){filesToSave['ApexClass'].push($(this).find('span').text());});
+    // $('#page_selector_chosen').find('.search-choice').each(function(){filesToSave['ApexPage'].push($(this).find('span').text());});
+    // $('#component_selector_chosen').find('.search-choice').each(function(){filesToSave['ApexComponent'].push($(this).find('span').text());});
+    // $('#object_selector_chosen').find('.search-choice').each(function(){filesToSave['CustomObject'].push($(this).find('span').text());});
+
+    // $('#testclass_selector_chosen').find('.search-choice').each(function(){filesToSave['TestClass'].push($(this).find('span').text());});
 
     vscode.postMessage({
         command : 'saveXMLs',
-        filesToSave : filesToSave
+        filesToSave : filesToSave,
+        fieldsToSave : fieldsToSave
     });
     
 }
@@ -115,7 +191,7 @@ function sendFilesToSaveObj(){
 function activateScreen(){
 
     var state = vscode.getState();
-    initializeChosen(state.fSrc,state.fPkg,state.tCls);
+    initializeChosen(state.filesInSrc,state.filesInPkg,state.fieldsInSrc,state.fieldsInPkg,state.testClass);
 
 }
 

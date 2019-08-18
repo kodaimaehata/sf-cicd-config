@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import {parseString, Builder} from 'xml2js';
+import { stringify } from 'querystring';
 
 const f = fs;
 
@@ -13,6 +14,8 @@ var packageFolderPath : string = '';
 const classesFolderPath : string = packageFolderPath + '/src/classes';
 const componentsFolderPath : string = packageFolderPath + '/src/components';
 const pagesFolderPath : string = packageFolderPath + '/src/pages';
+const objectsFolderPath : string = packageFolderPath + '/src/objects';
+
 const packageXmlPath : string = packageFolderPath + '/src/package.xml';
 const buildXmlPath : string = packageFolderPath + '/build/build.xml';
 
@@ -76,15 +79,18 @@ function createInputObject(){
 
 	if(!checkFolderPathAndPermission(packageFolderPath)) return;
 
-	var filesInSrc : Object ={'ApexClass' : [] , 'ApexComponent' : [] , 'ApexPage' : []};
+	var filesInSrc : Object ={'ApexClass' : [] , 'ApexComponent' : [] , 'ApexPage' : [], 'CustomObject' : []};
+	var filesInPkg : Object = {'ApexClass' : [] , 'ApexComponent' : [] , 'ApexPage' : [], 'CustomObject' : []};
+	var fieldsInSrc : Object = {};
+	var fieldsInPkg : Object = {};
 
-	//classes, comopnents, pagesフォルダのファイルを検索
+	//classes, comopnents, pages、オブジェクトフォルダのファイルを検索
 	fs.readdirSync(packageFolderPath + classesFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexClass'].push(fName.replace('.cls',''));});
 	fs.readdirSync(packageFolderPath + componentsFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexComponent'].push(fName.replace('.component',''));});
 	fs.readdirSync(packageFolderPath + pagesFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['ApexPage'].push(fName.replace('.page',''));});
+	fs.readdirSync(packageFolderPath + objectsFolderPath).filter((v) => !v.endsWith('-meta.xml')).forEach(fName => {filesInSrc['CustomObject'].push(fName.replace('.object',''));});
 
 	var xmlData = fs.readFileSync(packageFolderPath + packageXmlPath);
-	var filesInPkg : Object = {};
 
 	parseString(xmlData, function(err,result){
 
@@ -94,20 +100,40 @@ function createInputObject(){
 		}
 
 		packageXmlJson = result;
-		console.log(result);
+		// console.log(result);
 
 		const builder = new Builder();
 
 		var xmlStr = builder.buildObject(result);
-		console.log(xmlStr);	
+		// console.log(xmlStr);	
 
 		var types : Array<any> = result.Package.types;
 		if(types){
-			console.log(types);
-			var targetTypes : Array<any> = types.filter(t => {return t.name[0] === 'ApexClass'|| t.name[0] === 'ApexComponent' || t.name[0] === 'ApexPage';});
-			targetTypes.forEach( t => {filesInPkg[t.name[0]] = t.members;});	
+			// console.log(types);
+			var targetTypes : Array<any> = types.filter(t => {return t.name[0] === 'ApexClass'|| t.name[0] === 'ApexComponent' || t.name[0] === 'ApexPage' || t.name[0] === 'CustomObject'||t.name[0] === 'CustomField';});
+
+			targetTypes.forEach( t => {
+				if(t.name[0] === 'CustomField'){
+					fieldsInPkg = setFieldsInPkg(t.members);
+				}else{
+					filesInPkg[t.name[0]] = t.members;
+				}
+			});	
 		}
+
+		var objectList : Array<string> = Object.keys(fieldsInPkg);
+
+		fieldsInSrc = setFieldsInSrc(objectList);
+
 	});
+	console.log('**** Fields In Package.xml ****');
+	console.log(fieldsInPkg);
+	console.log('');
+
+	console.log('**** Fields In .object file ****');
+	console.log(fieldsInSrc);
+	console.log('');
+
 
 	var buildXMLData = fs.readFileSync(packageFolderPath + buildXmlPath);
 	var filesInBuildFile : Object = {};
@@ -119,7 +145,7 @@ function createInputObject(){
 
 		buildXmlJson = result;
 		var targetTags : Array<Object> = result.project.target;
-		console.log(targetTags);
+		// console.log(targetTags);
 
 		if(targetTags){
 			var targetTagsWithTest : Array<any> = targetTags.filter(t => {return t['$'].name === 'deployCode_SpecifiedTests';});
@@ -127,18 +153,62 @@ function createInputObject(){
 		}
 	});
 
-	var inputObject : Object = {'filesInSrc' : filesInSrc, 'filesInPkg' : filesInPkg,'filesInBuildFile': filesInBuildFile};
+	var inputObject : Object = {'filesInSrc' : filesInSrc, 'filesInPkg' : filesInPkg,'filesInBuildFile': filesInBuildFile, 'fieldsInSrc' : fieldsInSrc, 'fieldsInPkg' : fieldsInPkg};
 
 	return inputObject;
 
+}
+
+function setFieldsInPkg(fieldList : Array<string>) : Object{
+
+	var tmpFieldsInPkg : Object = {};
+
+	fieldList.forEach(element => {
+		var objName = element.split('.')[0];
+		var fieldName = element.split('.')[1];
+
+		if(!tmpFieldsInPkg.hasOwnProperty(objName)) {
+			console.log('Array of ' + objName + 'will be created');
+			tmpFieldsInPkg[objName] = new Array<string>();
+		}
+		tmpFieldsInPkg[objName].push(fieldName);
+	});
+
+	return tmpFieldsInPkg;
+}
+
+function setFieldsInSrc(objectList : Array<string>) : Object {
+
+	var fieldsInSrc : Object = {};
+	objectList.forEach(obj => {
+
+		var objFileName = obj + '.object';
+		var xmlData = fs.readFileSync( packageFolderPath + objectsFolderPath + '/' + objFileName);
+		
+		parseString(xmlData, function(err,result){
+
+			if(err){
+				vscode.window.showErrorMessage('Error happened during parsing ' + objFileName);
+				return;
+			}
+	
+			var customFieldsObj : Array<any> ;
+			customFieldsObj = result.CustomObject.fields;
+			customFieldsObj.forEach(field => {
+				if(!fieldsInSrc.hasOwnProperty(obj)) fieldsInSrc[obj] = new Array<string>();
+				fieldsInSrc[obj].push(field.fullName[0]);
+			});
+		});
+	});
+	return fieldsInSrc;
 }
 
 function checkFolderPathAndPermission(folderPath: String) : boolean{
 
 	//check path of classes, comopnents, pages folder
 	try{
-		console.log('folderPath' + folderPath);
-		console.log(folderPath + classesFolderPath);
+		// console.log('folderPath' + folderPath);
+		// console.log(folderPath + classesFolderPath);
 
 		fs.accessSync(folderPath + classesFolderPath,fs.constants.R_OK);
 		fs.accessSync(folderPath + componentsFolderPath, fs.constants.R_OK);
@@ -169,23 +239,76 @@ function checkFolderPathAndPermission(folderPath: String) : boolean{
 
 }
 
-function saveXMLs(filesToSaveObj){
-	savePackagexml(filesToSaveObj);
+function saveXMLs(filesToSaveObj, fieldsToSave){
+	savePackagexml(filesToSaveObj, fieldsToSave);
 	saveBuildXml(filesToSaveObj);
 }
 
-function savePackagexml(filesToSaveObj){
-	var apexClassArray : Array<String> = filesToSaveObj.ApexClass;
-	var apexPageArray : Array<String> = filesToSaveObj.ApexPage;
-	var apexComponentArray : Array<String> = filesToSaveObj.ApexComponent; 
+function savePackagexml(filesToSaveObj : Object,fieldsToSave : Object){
+	var apexClassArray : Array<String> = filesToSaveObj['ApexClass'];
+	var apexPageArray : Array<String> = filesToSaveObj['ApexPage'];
+	var apexComponentArray : Array<String> = filesToSaveObj['ApexComponent']; 
+	var customOgjectArray : Array<String> = filesToSaveObj['CustomObject']; 
+	var customFieldArray : Array<String> = createFieldsArray(fieldsToSave).sort();
 
-	var targetTypesArray : Array<any> = packageXmlJson.Package.types;
 
-	targetTypesArray.forEach(type => {
-		if(type.name[0] === 'ApexClass') type.members = apexClassArray.sort();
-		if(type.name[0] === 'ApexPage') type.members = apexPageArray.sort();
-		if(type.name[0] === 'ApexComponent') type.members = apexComponentArray.sort();
+	var targetTypesArray : Array<Object> = new Array<Object>();
+	var apexClassType : Object  = {};
+	var apexPageType : Object  = {};
+	var apexComponentType : Object  = {};
+	var customObjectType : Object  = {};
+	var customFieldType : Object = {};
+
+	var storedTypesArray : Array<any> = packageXmlJson.Package.types;
+
+	storedTypesArray.forEach(type  => {
+		switch(type.name[0]){
+			case 'ApexClass' : {apexClassType = type;break;}
+			case 'ApexPage' : {apexPageType = type;break;}
+			case 'ApexComponent' : {apexComponentType = type;break;}
+			case 'CustomObject' : {customObjectType = type;break;}
+			case 'CustomField' : {customFieldType = type;break;}
+			default : {targetTypesArray.push(type); break;}
+		}
 	});
+
+	if(apexClassArray.length > 0){
+		if(Object.keys(apexClassType).length == 0) apexClassType['name'] = ['ApexClass'];
+
+		apexClassType['members'] = apexClassArray;
+		targetTypesArray.push(apexClassType);
+	}
+
+	if(apexPageArray.length > 0){
+		if(Object.keys(apexPageType).length == 0) apexPageType['name'] = ['ApexPage'];
+
+		apexPageType['members'] = apexPageArray;
+		targetTypesArray.push(apexPageType);
+	}	
+	
+	if(apexComponentArray.length > 0){
+		if(Object.keys(apexComponentType).length == 0) apexComponentType['name'] = ['ApexComponent'];
+
+		apexComponentType['members'] = apexComponentArray;
+		targetTypesArray.push(apexComponentType);
+	}
+
+	if(customOgjectArray.length > 0){
+		if(Object.keys(customObjectType).length == 0) customObjectType['name'] = ['CustomObject'];
+
+		customObjectType['members'] = customOgjectArray;
+		targetTypesArray.push(customObjectType);
+	}	
+
+	if(customFieldArray.length > 0){
+		if(Object.keys(customFieldType).length == 0) customFieldType['name'] = ['CustomField'];
+
+		customFieldType['members'] = customFieldArray;
+		targetTypesArray.push(customFieldType);
+	}
+
+	// console.log('*** targetTypesArray ***');
+	// console.log(targetTypesArray);
 
 	packageXmlJson.Package.types = targetTypesArray;
 
@@ -193,7 +316,7 @@ function savePackagexml(filesToSaveObj){
 
 	var xmlStr = builder.buildObject(packageXmlJson);
 
-	console.log(xmlStr);
+	// console.log(xmlStr);
 
 	fs.writeFile(packageFolderPath + packageXmlPath,xmlStr,function(err){
 		(err)? vscode.window.showErrorMessage('Error happend on saving package.xml' + err.message) : vscode.window.showInformationMessage('Successfully saved package.xml');
@@ -216,12 +339,30 @@ function saveBuildXml(filesToSaveObj){
 	const builder = new Builder();
 
 	var xmlStr = builder.buildObject(buildXmlJson);
-	console.log('xmlStr to be Saved');
-	console.log(xmlStr);
+	// console.log('xmlStr to be Saved');
+	// console.log(xmlStr);
 
 	fs.writeFile(packageFolderPath + buildXmlPath,xmlStr,function(err){
 		(err)? vscode.window.showErrorMessage('Error happend on saving package.xml' + err.message) : vscode.window.showInformationMessage('Successfully saved build.xml');
 	});
+
+}
+
+function createFieldsArray(fieldsToSave : Object) : Array<string>{
+	var fieldsArray : Array<string> = new Array<string>();
+
+	var objectList : Array<string> = Object.keys(fieldsToSave);
+
+	objectList.forEach(object => {
+		fieldsToSave[object].forEach(field => {
+			fieldsArray.push(object + '.' + field);			
+		});
+	});
+
+	console.log('**** fieldsArray ****');
+	console.log(fieldsArray);
+
+	return fieldsArray;
 
 }
 
@@ -242,7 +383,7 @@ class ConfigPanel {
 	private _disposables: vscode.Disposable[] = [];
 
 	public static createOrShow(extensionPath: string,inObj : Object) {
-		console.log(inObj);
+		// console.log(inObj);
 		const column = vscode.window.activeTextEditor
 			? vscode.window.activeTextEditor.viewColumn
 			: undefined;
@@ -306,7 +447,7 @@ class ConfigPanel {
 						vscode.window.showErrorMessage(message.text);
 						return;
 					case 'saveXMLs':
-						saveXMLs(message.filesToSave);
+						saveXMLs(message.filesToSave, message.fieldsToSave);
 				}
 			},
 			null,
@@ -370,10 +511,24 @@ class ConfigPanel {
 				<select id="class-selector" multiple data-placeholder="Select Classes to include ..."></select>
 
 				<h2>Pages</h2>
-				<select id="page-selector" multiple data-placeholder="Select ApexComponents to include ..."></select>
+				<select id="page-selector" multiple data-placeholder="Select Pages to include ..."></select>
 
 				<h2>components</h2>
-				<select id="component-selector" multiple data-placeholder="Select Pages to include ..."></select>
+				<select id="component-selector" multiple data-placeholder="Select Components to include ..."></select>
+
+				<h2>CustomObjects</h2>
+				<select id="object-selector" multiple data-placeholder="Select Objects to include ..."></select>
+
+				<h2>CustomFields</h2>
+				<table id="custom-field-table" >
+					<colgroup>
+						<col class="object-col">
+					</colgroup>
+					<colgroup>
+						<col class="field-col">
+					</colgroup>
+				</table>
+				<h5><button id="add-object-record-btn" class="add-object-button">Add Object for CustomFields</button></h5>
 
 				<h1>Files in Build.xml</h1>
 				<select id="testclass-selector" multiple data-placeholder="Select Test Class to include ..."></select>
